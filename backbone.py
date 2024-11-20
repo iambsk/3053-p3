@@ -3,16 +3,16 @@ import select
 import socket
 import traceback
 import threading
-from hub import Hub
+from switch import Switch
 from frame import Frame
 
 BUFFER_SIZE = 1024
 
-class BackboneHub(Hub):
+class BackboneSwitch(Switch):
     def __init__(self, port: int = 8001, global_switch_table: dict[int, int] = {}, switch_table: dict[int, tuple[any, socket.socket]] = {}):
         self.port = port
         self.frame_buffers = {}
-        # switch table is a dictionary that maps the destination port to the address and socket
+        # switch table is a dictionary that maps the switch id to the address and socket
         self.switch_table: dict[int, tuple[any, socket.socket]] = switch_table
         # contains every node and the switch it's connected to, key is node id, value is switch id
         self.global_switch_table: dict[int, int] = global_switch_table
@@ -24,8 +24,9 @@ class BackboneHub(Hub):
         self.server_socket.listen(5)
         print(f"Switch listening on port {self.port}")
         
+    def start(self):
         threading.Thread(target=self.accept_connections).start()
-
+    
     def accept_connections(self):
         while True:
             switch_socket, addr = self.server_socket.accept()
@@ -55,19 +56,19 @@ class BackboneHub(Hub):
                         print(f"Backbone received frame from switch at {addr}")
                         
                         # Check global switch table for destination node's switch
-                        if frame.dest in self.global_switch_table:
-                            dest_switch_id = self.global_switch_table[frame.dest]
+                        if frame.dest_network in self.switch_table:
+                            dest_switch_id = frame.dest_network
                             socket = self.switch_table[dest_switch_id][1]
                             try:
                                 if socket != switch_socket:  # Don't send back to source
                                     socket.sendall(frame.to_bytes())
-                                    print(f"Forwarded frame to switch for node {frame.dest}")
+                                    print(f"Forwarded frame to switch for node {frame.dest_network}_{frame.dest_node}")
                             except (ConnectionResetError, BrokenPipeError) as e:
                                 print(f"Error forwarding to switch: {e}")
                                 if socket in self.switches:
                                     self.switches.remove(socket)
                         else:
-                            print(f"No switch found for destination node {frame.dest}")
+                            print(f"No switch found for destination node {frame.dest_network}_{frame.dest_node}")
                             
                     buffer = remaining
                 self.frame_buffers[addr[1]] = buffer
@@ -80,3 +81,7 @@ class BackboneHub(Hub):
                 if switch_socket in self.switches:
                     self.switches.remove(switch_socket)
                 break
+    
+    def set_switch_table(self, switch_table: dict[int, tuple[any, socket.socket]]):
+        self.switch_table = switch_table
+

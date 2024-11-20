@@ -1,20 +1,22 @@
 import sys
 
-def generate_files(x):
-    for i in range(1, x + 1):
-        with open(f"node{i}.txt", "w") as file:
-            for j in range(1, x + 1):
-                if i != j:  # Exclude itself
-                    file.write(f"{j}: {i} to {j}\n")
+def generate_files(num_networks, num_nodes):
+    for network in range(1, num_networks + 1):
+        for node in range(1, num_nodes + 1):
+            with open(f"node{network}_{node}.txt", "w") as file:
+                for other_node in range(1, num_nodes + 1):
+                    if node != other_node:  # Exclude itself
+                        file.write(f"{other_node}_{network}: {node} to {other_node}_{network}\n")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python nodeGen.py <x>")
+    if len(sys.argv) != 3:
+        print("Usage: python nodeGen.py num_networks num_nodes")
     else:
         try:
-            x = int(sys.argv[1])
-            generate_files(x)
-            print(f"Generated {x} files successfully.")
+            num_networks = int(sys.argv[1])
+            num_nodes = int(sys.argv[2])
+            generate_files(num_networks, num_nodes)
+            print(f"Generated {num_networks} files successfully.")
         except ValueError:
             print("Please provide an integer as the argument.")
 
