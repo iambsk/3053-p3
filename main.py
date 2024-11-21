@@ -1,11 +1,12 @@
+import os
 import sys
 import socket
 import time
 import threading
 import signal
-from switch import Switch, ShadowSwitch
+from switch import Switch
 from node import Node
-from backbone import BackboneSwitch
+from backbone import BackboneSwitch, ShadowSwitch
 
 # Global list to keep track of all threads
 threads = []
@@ -18,6 +19,15 @@ def signal_handler(sig, frame):
 			thread._stop()	# kill the thread
 	sys.exit(0)
 
+def simulate_failure(pid, delay):
+	def fail():
+		time.sleep(delay)
+		os.kill(pid, signal.SIGINT)
+		print("Simulated failure")
+	failure_thread = threading.Thread(target=fail, name="FailureSimulatorThread")
+	failure_thread.start()
+	threads.append(failure_thread)
+
 def main():
 	signal.signal(signal.SIGINT, signal_handler)
 
@@ -26,7 +36,6 @@ def main():
 		sys.exit(1)
 
 	num_as = int(sys.argv[1])
-	print(f"num_as: {num_as}")
 	num_nodes = int(sys.argv[2])
 	if not (1 <= num_nodes <= 16):
 		print("Number of nodes should be between 1 and 16.")
@@ -45,7 +54,8 @@ def main():
 	# global_switch_table = {}
 
 	# start the shadow switch
-	shadow_switch = ShadowSwitch(shadow_id, shadow_port, backbone_socket=None)
+	shadow_switch = ShadowSwitch(shadow_port, shadow_id)
+
 	shadow_thread = threading.Thread(target=shadow_switch.start, name="ShadowSwitchThread")
 	shadow_thread.start()
 	threads.append(shadow_thread)
@@ -58,6 +68,8 @@ def main():
 	backbone_switch_thread = threading.Thread(target=backbone_switch.start, name="BackboneSwitchThread")
 	backbone_switch_thread.start()
 	threads.append(backbone_switch_thread)
+
+	#backbone_pid = os.getpid()
 
 	sync_thread = threading.Thread(target=backbone_switch.sync_with_shadow, args=(shadow_socket,), name="SyncThread")
 	sync_thread.start()
@@ -99,6 +111,8 @@ def main():
 	print("-" * 40)
 	for node in nodes:
 		print(f"{node.network_id:<15}{node.id:<10}{node.switch_port:<15}")
+
+	#simulate_failure(backbone_pid, delay=0)
 
 	# Start transmission
 	for node in nodes:

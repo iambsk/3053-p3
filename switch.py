@@ -3,7 +3,6 @@ import select
 import socket
 import traceback
 import threading
-import pickle
 from frame import Frame
 
 BUFFER_SIZE = 1024
@@ -154,47 +153,3 @@ class Switch:
 					print(f"Error sending to backbone switch: {e}")
 
 
-	def sync_with_shadow(self, shadow_socket):
-		# Periodically send the current state to the shadow switch.
-		while True:
-			try:
-				serializable_switch_table = {key: (value[0], None) for key, value in self.switch_table.items()}
-	
-				state = {
-					"switch_table": serializable_switch_table,
-					"frame_buffers": {key: value.decode('utf-8') for key, value in self.frame_buffers.items()}
-				}
-	
-				shadow_socket.sendall(pickle.dumps(state))
-				time.sleep(1)  # Sync every second
-			except Exception as e:
-				print(f"Error syncing with shadow switch: {e}")
-				break
-
-class ShadowSwitch(Switch):
-	def __init__(self, id: int, port: int, backbone_socket=None):
-		super().__init__(id, port, backbone_socket)
-		self.is_active = False
-		self.last_heartbeat = time.time()
-
-	def receive_state(self, active_socket, timeout=5):
-		while True:
-			try:
-				state_data = active_socket.recv(BUFFER_SIZE)
-				state = pickle.loads(state_data)
-
-				self.switch_table = {key: (value[0], None) for key, value in state["switch_table"].items()}
-				self.frame_buffers = {key: value.encode('utf-8') for key, value in state["frame_buffers"].items()} 
-				self.last_heartbeat = time.time()
-			except socket.timeout:
-				if time.time() - self.last_heartbeat > timeout:
-					print("Active switch unreachable, activating shadow.")
-					self.is_active = True
-					break
-			except Exception as e:
-				print(f"Error in shadow switch state sync: {e}")
-				self.is_active = True
-				break
-
-		if self.is_active:
-			self.start()  # Activate shadow switch
