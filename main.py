@@ -52,11 +52,10 @@ def main():
 	
 	#start the Backbone Switch
 	backbone_switch = BackboneSwitch(backbone_port)
-	backbone_switch_thread = threading.Thread(target=backbone_switch.start, args=(shadow_socket,), name="BackboneSwitchThread")
+	backbone_switch_thread = threading.Thread(target=backbone_switch.start, name="BackboneSwitchThread")
 	backbone_switch_thread.start()
 	threads.append(backbone_switch_thread)
 
-	shadow_socket = socket.create_connection(('localhost', shadow_port))
 	sync_thread = threading.Thread(target=backbone_switch.sync_with_shadow, args=(shadow_socket,), name="SyncThread")
 	sync_thread.start()
 	threads.append(sync_thread)
