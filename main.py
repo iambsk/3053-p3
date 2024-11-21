@@ -21,23 +21,26 @@ def signal_handler(sig, frame):
 def main():
 	signal.signal(signal.SIGINT, signal_handler)
 
-	if len(sys.argv) != 2:
-		print("Usage: python main.py <number_of_nodes>")
+	if len(sys.argv) != 3:
+		print("Usage: python main.py <number_of_ASs> <number_of_nodes>")
 		sys.exit(1)
 
-	num_nodes = int(sys.argv[1])
-	if not (2 <= num_nodes <= 255):
-		print("Number of nodes should be between 2 and 255.")
+	num_as = int(sys.argv[1])
+	print(f"num_as: {num_as}")
+	num_nodes = int(sys.argv[2])
+	if not (1 <= num_nodes <= 16):
+		print("Number of nodes should be between 1 and 16.")
 		sys.exit(1)
 
-	backbone_port = 8001
-	shadow_port = 8005 
+	shadow_port = 8001 
 	shadow_id = 99 
+	backbone_port = 8002
 	switch_ports = { # id to port
-		1: 8002,
-		2: 8003,
-		# 3: 8004
 	}
+	for i in range(1, num_as + 1):
+		new_id = i
+		new_port = backbone_port + i
+		switch_ports[new_id] = new_port
 	# TODO Create global switch table
 	# global_switch_table = {}
 
@@ -77,7 +80,8 @@ def main():
 
 	# Connect each node
 	nodes = []
-	nodes_per_switch = -(-num_nodes // len(switches))  # Number of nodes per switch, rounded up
+	#nodes_per_switch = -(-num_nodes // len(switches))	# Number of nodes per switch, rounded up
+	nodes_per_switch = num_nodes 
 	print(f"Starting {nodes_per_switch} nodes per switch")
 	for i, switch in enumerate(switches):
 		for j in range(nodes_per_switch):

@@ -16,7 +16,7 @@ if __name__ == "__main__":
             num_networks = int(sys.argv[1])
             num_nodes = int(sys.argv[2])
             generate_files(num_networks, num_nodes)
-            print(f"Generated {num_networks} files successfully.")
+            print(f"Generated {num_networks * num_nodes} files successfully.")
         except ValueError:
             print("Please provide an integer as the argument.")
 
