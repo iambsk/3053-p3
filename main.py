@@ -19,15 +19,6 @@ def signal_handler(sig, frame):
 			thread._stop()	# kill the thread
 	sys.exit(0)
 
-def simulate_failure(pid, delay):
-	def fail():
-		time.sleep(delay)
-		os.kill(pid, signal.SIGINT)
-		print("Simulated failure")
-	failure_thread = threading.Thread(target=fail, name="FailureSimulatorThread")
-	failure_thread.start()
-	threads.append(failure_thread)
-
 def main():
 	signal.signal(signal.SIGINT, signal_handler)
 
@@ -42,8 +33,9 @@ def main():
 		sys.exit(1)
 
 	shadow_port = 8001 
-	shadow_id = 99 
-	backbone_port = 8002
+	sync_port = 8002 
+	backbone_port = 8003
+	shadow_id = 99
 	switch_ports = { # id to port
 	}
 	for i in range(1, num_as + 1):
@@ -53,27 +45,45 @@ def main():
 	# TODO Create global switch table
 	# global_switch_table = {}
 
-	# start the shadow switch
-	shadow_switch = ShadowSwitch(shadow_port, shadow_id)
+	# Initialize Shadow Switch's synchronization listener
+	shadow_sync_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	shadow_sync_socket.bind(('localhost', sync_port))
+	shadow_sync_socket.listen(1)
 
-	shadow_thread = threading.Thread(target=shadow_switch.start, name="ShadowSwitchThread")
-	shadow_thread.start()
-	threads.append(shadow_thread)
-	time.sleep(0.1)
+	# Create a connection from Backbone to Shadow
+	backbone_to_shadow_socket = socket.create_connection(('localhost', sync_port))
 
-	shadow_socket = socket.create_connection(('localhost', shadow_port))
-	
-	#start the Backbone Switch
+	# Start the Backbone Switch
 	backbone_switch = BackboneSwitch(backbone_port)
-	backbone_switch_thread = threading.Thread(target=backbone_switch.start, name="BackboneSwitchThread")
+	backbone_switch_thread = threading.Thread(target=backbone_switch.start, name="BackboneSwitchThread", daemon=True)
 	backbone_switch_thread.start()
 	threads.append(backbone_switch_thread)
 
-	#backbone_pid = os.getpid()
+	# Start the Shadow Switch
+	shadow_switch = ShadowSwitch(shadow_port, shadow_id=99)
+	shadow_thread = threading.Thread(target=shadow_switch.start, name="ShadowSwitchThread", daemon=True)
+	shadow_thread.start()
+	threads.append(shadow_thread)
 
-	sync_thread = threading.Thread(target=backbone_switch.sync_with_shadow, args=(shadow_socket,), name="SyncThread")
-	sync_thread.start()
-	threads.append(sync_thread)
+	# Thread for Backbone Switch to send state to Shadow Switch
+	shadow_sync_thread = threading.Thread(
+		target=backbone_switch.sync_with_shadow,
+		args=(backbone_to_shadow_socket,),  # Use dedicated socket for sending
+		name="SyncThread",
+		daemon=True
+	)
+	shadow_sync_thread.start()
+	threads.append(shadow_sync_thread)
+
+	# Thread for Shadow Switch to receive state from Backbone Switch
+	shadow_recv_thread = threading.Thread(
+		target=shadow_switch.receive_state,
+		args=(shadow_sync_socket.accept()[0],),  # Accept connection from Backbone
+		name="SyncRecvThread",
+		daemon=True
+	)
+	shadow_recv_thread.start()
+	threads.append(shadow_recv_thread)
 
 	print("Starting switches")
 	switches = []
@@ -112,13 +122,19 @@ def main():
 	for node in nodes:
 		print(f"{node.network_id:<15}{node.id:<10}{node.switch_port:<15}")
 
-	#simulate_failure(backbone_pid, delay=0)
+	print("Stopping Backbone Switch...")
+	backbone_switch.stop()
+	for thread in threads:
+		if thread.name == "BackboneSwitchThread":
+			thread.join()
+			print("Backbone Switch thread stopped.")
 
 	# Start transmission
 	for node in nodes:
 		send_thread = threading.Thread(target=node.read_input_and_send, name=f"NodeSendThread-{node.id}")
 		send_thread.start()
 		threads.append(send_thread)
+		time.sleep(1)
 
 	print("Waiting for transmission to finish")
 

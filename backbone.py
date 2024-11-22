@@ -10,7 +10,8 @@ from frame import Frame
 BUFFER_SIZE = 1024
 
 class BackboneSwitch(Switch):
-	def __init__(self, port: int = 8001, global_switch_table: dict[int, int] = {}, switch_table: dict[int, tuple[any, socket.socket]] = {}):
+	def __init__(self, port: int, global_switch_table: dict[int, int] = {}, switch_table: dict[int, tuple[any, socket.socket]] = {}):
+		self.stop_event = threading.Event()
 		self.port = port
 		self.frame_buffers = {}
 		# switch table is a dictionary that maps the switch id to the address and socket
@@ -26,16 +27,17 @@ class BackboneSwitch(Switch):
 		print(f"Switch listening on port {self.port}")
 		
 	def start(self):
+		self.stop_event.clear()
 		threading.Thread(target=self.accept_connections).start()
 	
 	def accept_connections(self):
-		while True:
+		while not self.stop_event.is_set():
 			switch_socket, addr = self.server_socket.accept()
 			self.switches.append(switch_socket)
 			threading.Thread(target=self.handle_switch, args=(switch_socket, addr)).start()
 
 	def handle_switch(self, switch_socket, addr):
-		while True:
+		while not self.stop_event.is_set():
 			try:
 				frame_bytes = switch_socket.recv(BUFFER_SIZE)
 				if not frame_bytes:
@@ -87,47 +89,67 @@ class BackboneSwitch(Switch):
 		self.switch_table = switch_table
 
 	def sync_with_shadow(self, shadow_socket):
-		while True:
+		while not self.stop_event.is_set():
 			try:
-				# Prepare a serializable state excluding non-picklable objects like sockets
+				# Prepare state for transfer
 				serializable_switch_table = {key: (value[0], None) for key, value in self.switch_table.items()}
 				serializable_frame_buffers = {key: value.decode('utf-8') for key, value in self.frame_buffers.items()}
-	
+
 				state = {
 					"switch_table": serializable_switch_table,
 					"frame_buffers": serializable_frame_buffers,
 					"global_switch_table": self.global_switch_table,
 				}
-	
-				# Serialize and send state to the shadow switch
+
+				# Serialize and send state
 				shadow_socket.sendall(pickle.dumps(state))
-				time.sleep(.5)
-			except (ConnectionResetError, BrokenPipeError) as e:
-				print(f"Error syncing with shadow switch: {e}. Stopping sync.")
-				break
+				#print("Backbone: State sent to shadow.")
+
+				# Wait for acknowledgment
+				ack = shadow_socket.recv(BUFFER_SIZE)
+				'''
+				if ack.decode('utf-8') == "ACK":
+					print("Backbone: Shadow switch acknowledged state.")
+				else:
+					print("Backbone: Unexpected response from shadow switch.")
+					'''
+
+				time.sleep(0.5)
+
 			except Exception as e:
-				print(f"Unexpected error in sync_with_shadow: {e}")
+				print(f"Error in sync_with_shadow: {e}")
 				break
 
+	def stop(self):
+		self.stop_event.set()
+		self.server_socket.close()
+		for s in self.switches:
+			s.close()
 
 class ShadowSwitch(BackboneSwitch):
 	def __init__(self, port: int, shadow_id: int, global_switch_table: dict = {}, switch_table: dict = {}):
 		super().__init__(port, global_switch_table, switch_table)
 		self.is_active = False
 		self.last_heartbeat = time.time()
+		self.started = False  # Prevent multiple starts
 
-	def receive_state(self, active_socket, timeout=1):
+	def receive_state(self, active_socket, timeout=3):
+		active_socket.settimeout(timeout)
+
 		while not self.is_active:
 			try:
 				state_data = active_socket.recv(BUFFER_SIZE)
 				state = pickle.loads(state_data)
 
-				# Update state
 				self.switch_table = state.get("switch_table", {})
 				self.frame_buffers = {key: value.encode('utf-8') for key, value in state.get("frame_buffers", {}).items()}
 				self.global_switch_table = state.get("global_switch_table", {})
-	
+
+				active_socket.sendall(b"ACK")
+				#print("Shadow: State updated and acknowledged.")
+
 				self.last_heartbeat = time.time()
+
 			except socket.timeout:
 				if time.time() - self.last_heartbeat > timeout:
 					print("Active switch unreachable, activating shadow.")
@@ -137,8 +159,6 @@ class ShadowSwitch(BackboneSwitch):
 				print(f"Error receiving state in shadow switch: {e}")
 				self.is_active = True
 				break
-	
-		if self.is_active:
-			print("Shadow switch is now active.")
-			self.start()
 
+		if self.is_active:
+			self.start()

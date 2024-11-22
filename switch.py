@@ -22,12 +22,10 @@ class Switch:
 		self.server_socket.listen(5)
 		print(f"Switch listening on port {self.port}")
 	
-	def start(self, shadow_socket=None):
+	def start(self):
 		threading.Thread(target=self.accept_connections).start()
 		if self.backbone_socket:
 			threading.Thread(target=self.handle_backbone).start()
-		if shadow_socket is not None:
-			threading.Thread(target=self.sync_with_shadow, args=(shadow_socket,)).start()
 
    
 	def handle_backbone(self):
