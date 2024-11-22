@@ -6,11 +6,13 @@ import threading
 from frame import Frame
 
 class Node:
-    def __init__(self, id, switch_host, switch_port, network_id):
+    def __init__(self, id, switch_host, switch_port, network_id, shadow_port=None):
         self.id = id
         self.switch_host = switch_host
         self.switch_port = switch_port
         self.network_id = network_id
+        self.shadow_host = switch_host
+        self.shadow_port = shadow_port
         self.input_file = f"node{network_id}_{id}.txt"
         self.output_file = f"node{network_id}_{id}_output.txt"
         self.socket = None
@@ -74,6 +76,7 @@ class Node:
             if not ack_received:
                 print(f"No ACK received from Node {dest_network}_{dest_node} after {timeout} seconds")
                 # Could implement retransmission here if needed
+
     def receive_data(self):
         print(f"Node {self.network_id}_{self.id} receiving data")
         buffer = b""
@@ -89,6 +92,13 @@ class Node:
                 while Frame.DELIMITER.encode() in buffer:
                     frame_str, buffer = buffer.split(Frame.DELIMITER.encode(), 1)
                     frame = Frame.from_bytes(frame_str)
+
+					# Handle SWITCH_TO_SHADOW message
+                    if frame.data == "SWITCH_TO_SHADOW":
+                        print(f"Node {self.network_id}_{self.id}: Received SWITCH_TO_SHADOW notification.")
+                        self.switch_to_shadow()
+                        continue
+
                     if frame.dest_network == self.network_id and frame.dest_node == self.id:
                         if frame.is_ack():
                             print(f"Node {self.network_id}_{self.id} received ACK from Node {frame.src_network}_{frame.src_node}")
@@ -125,3 +135,17 @@ class Node:
         with open(self.output_file, 'a') as file:
             file.write(f"{src_network}_{src_node}: {data}\n")
         print(f"Node {self.id} received data from Node {src_network}_{src_node}: {data}")
+
+    def switch_to_shadow(self):
+        print(f"Node {self.id}: Switching to Shadow Switch at {self.shadow_host}:{self.shadow_port}")
+        try:
+            if self.socket:
+                self.socket.close()
+
+            # Connect to Shadow Switch
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((self.shadow_host, self.shadow_port))
+            print(f"Node {self.id}: Successfully connected to Shadow Switch.")
+        except Exception as e:
+            print(f"Node {self.id}: Error connecting to Shadow Switch: {e}")
+

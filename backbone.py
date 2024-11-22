@@ -92,22 +92,29 @@ class BackboneSwitch(Switch):
 		while not self.stop_event.is_set():
 			try:
 				# Prepare state for transfer
-				serializable_switch_table = {key: (value[0], None) for key, value in self.switch_table.items()}
-				serializable_frame_buffers = {key: value.decode('utf-8') for key, value in self.frame_buffers.items()}
+				serializable_switch_table = {}
+				for switch_id, (addr, sock) in self.switch_table.items():
+					serializable_switch_table[switch_id] = (addr, None) 
+
+				# Prepare active connections (optional)
+				active_connections = {
+					switch_id: sock.getpeername() if sock else None
+					for switch_id, (addr, sock) in self.switch_table.items()
+					if sock
+				}
 
 				state = {
 					"switch_table": serializable_switch_table,
-					"frame_buffers": serializable_frame_buffers,
 					"global_switch_table": self.global_switch_table,
+					"frame_buffers": {key: value.decode('utf-8') for key, value in self.frame_buffers.items()},
+					"active_connections": active_connections,
 				}
-
 				# Serialize and send state
 				shadow_socket.sendall(pickle.dumps(state))
-				#print("Backbone: State sent to shadow.")
-
-				# Wait for acknowledgment
-				ack = shadow_socket.recv(BUFFER_SIZE)
 				'''
+				print(f"BackboneSwitch: State sent to Shadow Switch")
+
+				ack = shadow_socket.recv(BUFFER_SIZE)
 				if ack.decode('utf-8') == "ACK":
 					print("Backbone: Shadow switch acknowledged state.")
 				else:
@@ -141,14 +148,22 @@ class ShadowSwitch(BackboneSwitch):
 				state_data = active_socket.recv(BUFFER_SIZE)
 				state = pickle.loads(state_data)
 
+				state = pickle.loads(state_data)
 				self.switch_table = state.get("switch_table", {})
-				self.frame_buffers = {key: value.encode('utf-8') for key, value in state.get("frame_buffers", {}).items()}
 				self.global_switch_table = state.get("global_switch_table", {})
+				self.frame_buffers = {key: value.encode('utf-8') for key, value in state.get("frame_buffers", {}).items()}
+				active_connections = state.get("active_connections", {})
 
 				active_socket.sendall(b"ACK")
 				#print("Shadow: State updated and acknowledged.")
 
-				self.last_heartbeat = time.time()
+				# Reestablish connections
+				for switch_id, addr in active_connections.items():
+					if switch_id not in self.switch_table:
+						new_socket = socket.create_connection(addr)
+						self.switch_table[switch_id] = (addr, new_socket)
+
+					self.last_heartbeat = time.time()
 
 			except socket.timeout:
 				if time.time() - self.last_heartbeat > timeout:
@@ -161,4 +176,16 @@ class ShadowSwitch(BackboneSwitch):
 				break
 
 		if self.is_active:
+			self.notify_nodes()
 			self.start()
+			print("Shadow Switch now active.")
+
+	def notify_nodes(self):
+		print(f"ShadowSwitch: switch table: {self.switch_table}")
+		for node_id, (addr, sock) in self.switch_table.items():
+			try:
+				sock.sendall(b"SWITCH_TO_SHADOW")
+				print(f"ShadowSwitch: Notification sent to Node connected to Switch {switch_id}.")
+			except Exception as e:
+				print(f"Failed to notify node {node_id}: {e}")
+

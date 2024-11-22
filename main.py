@@ -55,22 +55,21 @@ def main():
 
 	# Start the Backbone Switch
 	backbone_switch = BackboneSwitch(backbone_port)
-	backbone_switch_thread = threading.Thread(target=backbone_switch.start, name="BackboneSwitchThread", daemon=True)
+	backbone_switch_thread = threading.Thread(target=backbone_switch.start, name="BackboneSwitchThread")
 	backbone_switch_thread.start()
 	threads.append(backbone_switch_thread)
 
 	# Start the Shadow Switch
 	shadow_switch = ShadowSwitch(shadow_port, shadow_id=99)
-	shadow_thread = threading.Thread(target=shadow_switch.start, name="ShadowSwitchThread", daemon=True)
+	shadow_thread = threading.Thread(target=shadow_switch.start, name="ShadowSwitchThread")
 	shadow_thread.start()
 	threads.append(shadow_thread)
 
 	# Thread for Backbone Switch to send state to Shadow Switch
 	shadow_sync_thread = threading.Thread(
 		target=backbone_switch.sync_with_shadow,
-		args=(backbone_to_shadow_socket,),  # Use dedicated socket for sending
-		name="SyncThread",
-		daemon=True
+		args=(backbone_to_shadow_socket,),
+		name="SyncThread"
 	)
 	shadow_sync_thread.start()
 	threads.append(shadow_sync_thread)
@@ -78,9 +77,8 @@ def main():
 	# Thread for Shadow Switch to receive state from Backbone Switch
 	shadow_recv_thread = threading.Thread(
 		target=shadow_switch.receive_state,
-		args=(shadow_sync_socket.accept()[0],),  # Accept connection from Backbone
-		name="SyncRecvThread",
-		daemon=True
+		args=(shadow_sync_socket.accept()[0],),
+		name="SyncRecvThread"
 	)
 	shadow_recv_thread.start()
 	threads.append(shadow_recv_thread)
@@ -108,7 +106,7 @@ def main():
 	for i, switch in enumerate(switches):
 		for j in range(nodes_per_switch):
 			print(f"Starting node {j + 1} on switch {i + 1}")
-			node = Node(j + 1, 'localhost', switch.port, i + 1)
+			node = Node(j + 1, 'localhost', switch.port, i + 1, shadow_port)
 			nodes.append(node)
 			node.connect_to_switch()
 			node_thread = threading.Thread(target=node.receive_data, name=f"NodeReceiveThread-{node.id}")
@@ -122,19 +120,21 @@ def main():
 	for node in nodes:
 		print(f"{node.network_id:<15}{node.id:<10}{node.switch_port:<15}")
 
+	'''
 	print("Stopping Backbone Switch...")
 	backbone_switch.stop()
 	for thread in threads:
 		if thread.name == "BackboneSwitchThread":
 			thread.join()
 			print("Backbone Switch thread stopped.")
+			'''
 
 	# Start transmission
 	for node in nodes:
 		send_thread = threading.Thread(target=node.read_input_and_send, name=f"NodeSendThread-{node.id}")
 		send_thread.start()
 		threads.append(send_thread)
-		time.sleep(1)
+		#time.sleep(1)
 
 	print("Waiting for transmission to finish")
 
