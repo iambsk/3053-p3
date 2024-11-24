@@ -10,7 +10,7 @@ from frame import Frame
 BUFFER_SIZE = 1024
 
 class BackboneSwitch(Switch):
-	def __init__(self, port: int, global_switch_table: dict[int, int] = {}, switch_table: dict[int, tuple[any, socket.socket]] = {}):
+	def __init__(self, port: int, global_switch_table: dict[int, int] = {}, switch_table: dict[int, tuple[any, socket.socket]] = {}, firewall_rules: dict[str, str] = {}):
 		self.stop_event = threading.Event()
 		self.port = port
 		self.frame_buffers = {}
@@ -18,6 +18,7 @@ class BackboneSwitch(Switch):
 		self.switch_table: dict[int, tuple[any, socket.socket]] = switch_table
 		# contains every node and the switch it's connected to, key is node id, value is switch id
 		self.global_switch_table: dict[int, int] = global_switch_table
+		self.firewall_rules: dict[str, str] = firewall_rules
 		self.lock = threading.RLock()
 		self.switches = []	# switches connected
 		
@@ -34,7 +35,20 @@ class BackboneSwitch(Switch):
 		while not self.stop_event.is_set():
 			switch_socket, addr = self.server_socket.accept()
 			self.switches.append(switch_socket)
+			# Send firewall rules to the newly connected switch
+			self.send_firewall_rules(switch_socket)
 			threading.Thread(target=self.handle_switch, args=(switch_socket, addr)).start()
+
+	def send_firewall_rules(self, switch_socket):
+		try:
+			print(f"Backbone: Firewall rules: {self.firewall_rules}")
+			firewall_data = pickle.dumps(self.firewall_rules)
+			size = len(firewall_data).to_bytes(8, byteorder='big')
+			switch_socket.sendall(size)
+			switch_socket.sendall(firewall_data)
+			print("Firewall rules sent to switch.")
+		except Exception as e:
+			print(f"Error sending firewall rules: {e}")
 
 	def handle_switch(self, switch_socket, addr):
 		while not self.stop_event.is_set():
@@ -57,21 +71,32 @@ class BackboneSwitch(Switch):
 					if frame_data:	
 						frame = Frame.from_bytes(frame_data)
 						print(f"Backbone received frame from switch at {addr}")
-						
-						# Check global switch table for destination node's switch
-						if frame.dest_network in self.switch_table:
-							dest_switch_id = frame.dest_network
-							socket = self.switch_table[dest_switch_id][1]
-							try:
-								if socket != switch_socket:  # Don't send back to source
-									socket.sendall(frame.to_bytes())
-									print(f"Forwarded frame to switch for node {frame.dest_network}_{frame.dest_node}")
-							except (ConnectionResetError, BrokenPipeError) as e:
-								print(f"Error forwarding to switch: {e}")
-								if socket in self.switches:
-									self.switches.remove(socket)
+						rule_key = f"{frame.src_network}_{frame.src_node}_{frame.dest_network}_{frame.dest_node}"
+						if self.firewall_rules.get(rule_key, "Allow") == "Block":
+							print(f"Blocked traffic from {frame.src_network}_{frame.src_node} to {frame.dest_network}_{frame.dest_node}")
+							nack_frame = Frame(
+                                src_network=frame.dest_network,
+                                src_node=frame.dest_node,
+                                dest_network=frame.src_network,
+                                dest_node=frame.src_node,
+                                ack=0,
+                                ack_type="10"
+							)
+							switch_socket.sendall(nack_frame.to_bytes())
 						else:
-							print(f"No switch found for destination node {frame.dest_network}_{frame.dest_node}")
+							if frame.dest_network in self.switch_table:
+								dest_switch_id = frame.dest_network
+								dest_socket = self.switch_table[dest_switch_id][1]
+								try:
+									if dest_socket != switch_socket:  # Don't send back to source
+										dest_socket.sendall(frame.to_bytes())
+										print(f"Forwarded frame to switch for node {frame.dest_network}_{frame.dest_node}")
+								except (ConnectionResetError, BrokenPipeError) as e:
+									print(f"Error forwarding to switch: {e}")
+									if dest_socket in self.switches:
+										self.switches.remove(dest_socket)
+							else:
+								print(f"No switch found for destination node {frame.dest_network}_{frame.dest_node}")   
 							
 					buffer = remaining
 				self.frame_buffers[addr[1]] = buffer
@@ -132,7 +157,6 @@ class BackboneSwitch(Switch):
 		self.server_socket.close()
 		for s in self.switches:
 			s.close()
-
 class ShadowSwitch(BackboneSwitch):
 	def __init__(self, port: int, shadow_id: int, global_switch_table: dict = {}, switch_table: dict = {}):
 		super().__init__(port, global_switch_table, switch_table)

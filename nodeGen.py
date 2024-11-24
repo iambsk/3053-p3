@@ -10,7 +10,7 @@ def generate_files(num_networks, num_nodes):
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python nodeGen.py num_networks num_nodes")
+        print("Usage: python nodeGen.py <number of ASes> <number of nodes>")
     else:
         try:
             num_networks = int(sys.argv[1])

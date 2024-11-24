@@ -81,7 +81,6 @@ class Node:
         print(f"Node {self.network_id}_{self.id} receiving data")
         buffer = b""
         while True:
-            print(buffer)
             try:
                 frame_data = self.socket.recv(1024)
                 if not frame_data:
@@ -93,7 +92,7 @@ class Node:
                     frame_str, buffer = buffer.split(Frame.DELIMITER.encode(), 1)
                     frame = Frame.from_bytes(frame_str)
 
-					# Handle SWITCH_TO_SHADOW message
+                    # Handle SWITCH_TO_SHADOW message
                     if frame.data == "SWITCH_TO_SHADOW":
                         print(f"Node {self.network_id}_{self.id}: Received SWITCH_TO_SHADOW notification.")
                         self.switch_to_shadow()
@@ -103,23 +102,29 @@ class Node:
                         if frame.is_ack():
                             print(f"Node {self.network_id}_{self.id} received ACK from Node {frame.src_network}_{frame.src_node}")
                         else:
-                            self.write_output(frame.src_network, frame.src_node, frame.data)
-                            # 5% chance of not sending ACK
+                            # Randomly reject traffic with a 5% chance
                             if random.random() <= 0.05:
-                                print(f"Node {self.network_id}_{self.id} randomly failed to ACK message from Node {frame.src_network}_{frame.src_node}")
-                                ack_frame = Frame(src_network=self.network_id, src_node=self.id, dest_network=frame.src_network, dest_node=frame.src_node, ack=0, ack_type="00")
+                                print(f"Node {self.network_id}_{self.id} randomly rejected message from Node {frame.src_network}_{frame.src_node}")
+                                ack_frame = Frame(src_network=self.network_id, src_node=self.id, dest_network=frame.src_network, dest_node=frame.src_node, ack=0, ack_type="10")
                                 with self.lock:
                                     self.socket.sendall(ack_frame.to_bytes())
                             else:
-                                print(f"Node {self.network_id}_{self.id} sending ACK to Node {frame.src_network}_{frame.src_node}")
-                                # Send ACK back to source
-                                ack_frame = Frame(src_network=self.network_id, src_node=self.id, dest_network=frame.src_network, dest_node=frame.src_node, ack=0, ack_type="11")
-                                with self.lock:
-                                    self.socket.sendall(ack_frame.to_bytes())
+                                self.write_output(frame.src_network, frame.src_node, frame.data)
+                                # 5% chance of not sending ACK
+                                if random.random() <= 0.05:
+                                    print(f"Node {self.network_id}_{self.id} randomly failed to ACK message from Node {frame.src_network}_{frame.src_node}")
+                                    ack_frame = Frame(src_network=self.network_id, src_node=self.id, dest_network=frame.src_network, dest_node=frame.src_node, ack=0, ack_type="00")
+                                    with self.lock:
+                                        self.socket.sendall(ack_frame.to_bytes())
+                                else:
+                                    print(f"Node {self.network_id}_{self.id} sending ACK to Node {frame.src_network}_{frame.src_node}")
+                                    # Send ACK back to source
+                                    ack_frame = Frame(src_network=self.network_id, src_node=self.id, dest_network=frame.src_network, dest_node=frame.src_node, ack=0, ack_type="11")
+                                    with self.lock:
+                                        self.socket.sendall(ack_frame.to_bytes())
             except Exception as e:
                 print(f"Error receiving data for Node {self.network_id}_{self.id}: {e}")
                 break
-            
     def read_input_and_send(self):
         print(f"Node {self.network_id}_{self.id} reading input file: {self.input_file}")
         with open(self.input_file, 'r') as file:

@@ -1,6 +1,7 @@
 import time
 import select
 import socket
+import pickle
 import traceback
 import threading
 from frame import Frame
@@ -14,6 +15,7 @@ class Switch:
 		self.switch_table = {}	# Maps node id to (address, socket)
 		self.backbone_socket = backbone_socket	
 		self.frame_buffers = {}
+		self.firewall_rules = {}
 		self.lock = threading.RLock()
 
 		self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -25,9 +27,29 @@ class Switch:
 	def start(self):
 		threading.Thread(target=self.accept_connections).start()
 		if self.backbone_socket:
+			self.get_firewall_rules_from_backbone()
 			threading.Thread(target=self.handle_backbone).start()
 
-   
+	def get_firewall_rules_from_backbone(self):
+		try:
+			# Receive the size of the firewall data first
+			size_data = self.backbone_socket.recv(8)
+			size = int.from_bytes(size_data, byteorder='big')
+			
+			# Now receive the actual firewall data based on the size
+			firewall_data = b''
+			while len(firewall_data) < size:
+				packet = self.backbone_socket.recv(BUFFER_SIZE)
+				if not packet:
+					break
+				firewall_data += packet
+			
+			self.firewall_rules = pickle.loads(firewall_data)
+			print(f"Firewall rules: {self.firewall_rules}")
+			print("Firewall rules received from backbone.")
+		except Exception as e:
+			print(f"Error receiving firewall rules from backbone: {e}")
+	
 	def handle_backbone(self):
 		while True:
 			try:
@@ -97,7 +119,22 @@ class Switch:
 										del self.switch_table[addr[1]]
 								self.switch_table[frame.src_node] = (addr, client_socket)
 								# print(f"Node {frame.src} added to switch table.")
-							self.forward_frame(frame, addr)
+							print(f"Firewall rules: {self.firewall_rules}")
+							# Check firewall rules before forwarding
+							rule_key = f"{frame.src_network}_{frame.src_node}_{frame.dest_network}_{frame.dest_node}"
+							if self.firewall_rules.get(rule_key, "Allow") == "Block":
+								print(f"Blocked traffic from {frame.src_network}_{frame.src_node} to {frame.dest_network}_{frame.dest_node}")
+								nack_frame = Frame(
+									src_network=frame.dest_network,
+									src_node=frame.dest_node,
+									dest_network=frame.src_network,
+									dest_node=frame.src_node,
+									ack=0,
+									ack_type="10"
+								)
+								client_socket.sendall(nack_frame.to_bytes())
+							else:
+								self.forward_frame(frame, addr)
 						buffer = remaining
 					self.frame_buffers[addr[1]] = buffer
 
@@ -109,7 +146,6 @@ class Switch:
 					if addr[1] in self.frame_buffers:
 						del self.frame_buffers[addr[1]]
 				break
-	
 	def forward_frame(self, frame, addr):
 		print(f"Forwarding frame from Node {frame.src_network}_{frame.src_node} to Node {frame.dest_network}_{frame.dest_node}")
 		with self.lock:

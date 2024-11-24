@@ -11,6 +11,19 @@ from backbone import BackboneSwitch, ShadowSwitch
 # Global list to keep track of all threads
 threads = []
 
+# Helper function to load firewall rules
+def load_firewall_rules(file_path):
+    rules = {}
+    try:
+        with open(file_path, 'r') as f:
+            for line in f:
+                if line.strip():
+                    rule_key, action = line.strip().split(' ')
+                    rules[rule_key] = action
+    except FileNotFoundError:
+        print(f"Firewall file {file_path} not found. No rules loaded.")
+    return rules
+
 def signal_handler(sig, frame):
 	print("\nInterrupt received, shutting down...")
 	for thread in threads:
@@ -18,6 +31,8 @@ def signal_handler(sig, frame):
 			print(f"Terminating thread {thread.name}")
 			thread._stop()	# kill the thread
 	sys.exit(0)
+
+
 
 def main():
 	signal.signal(signal.SIGINT, signal_handler)
@@ -31,7 +46,8 @@ def main():
 	if not (1 <= num_nodes <= 16):
 		print("Number of nodes should be between 1 and 16.")
 		sys.exit(1)
-
+	firewall_rules = load_firewall_rules('firewall.txt')
+	print(f"Firewall rules: {firewall_rules}")
 	shadow_port = 8001 
 	sync_port = 8002 
 	backbone_port = 8003
@@ -54,7 +70,7 @@ def main():
 	backbone_to_shadow_socket = socket.create_connection(('localhost', sync_port))
 
 	# Start the Backbone Switch
-	backbone_switch = BackboneSwitch(backbone_port)
+	backbone_switch = BackboneSwitch(backbone_port, firewall_rules=firewall_rules)
 	backbone_switch_thread = threading.Thread(target=backbone_switch.start, name="BackboneSwitchThread")
 	backbone_switch_thread.start()
 	threads.append(backbone_switch_thread)
@@ -120,14 +136,15 @@ def main():
 	for node in nodes:
 		print(f"{node.network_id:<15}{node.id:<10}{node.switch_port:<15}")
 
-	# '''
+    # REMOVE THE QUOTES TO TEST THE SHADOW SWITCH
+	'''
 	print("Stopping Backbone Switch...")
 	backbone_switch.stop()
 	for thread in threads:
 		if thread.name == "BackboneSwitchThread":
 			thread.join()
 			print("Backbone Switch thread stopped.")
-			# '''
+			'''
 	time.sleep(0.4)
 	# Start transmission
 	for node in nodes:
