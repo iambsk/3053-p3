@@ -137,7 +137,7 @@ class Node:
         print(f"Node {self.id} received data from Node {src_network}_{src_node}: {data}")
 
     def switch_to_shadow(self):
-        print(f"Node {self.id}: Switching to Shadow Switch at {self.shadow_host}:{self.shadow_port}")
+        print(f"Node {self.network_id}_{self.id}: Switching to Shadow Switch at {self.shadow_host}:{self.shadow_port}")
         try:
             if self.socket:
                 self.socket.close()
@@ -145,7 +145,7 @@ class Node:
             # Connect to Shadow Switch
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.shadow_host, self.shadow_port))
-            print(f"Node {self.id}: Successfully connected to Shadow Switch.")
+            print(f"Node {self.network_id}_{self.id}: Successfully connected to Shadow Switch.")
         except Exception as e:
-            print(f"Node {self.id}: Error connecting to Shadow Switch: {e}")
+            print(f"Node {self.network_id}_{self.id}: Error connecting to Shadow Switch: {e}")
 

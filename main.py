@@ -109,7 +109,7 @@ def main():
 			node = Node(j + 1, 'localhost', switch.port, i + 1, shadow_port)
 			nodes.append(node)
 			node.connect_to_switch()
-			node_thread = threading.Thread(target=node.receive_data, name=f"NodeReceiveThread-{node.id}")
+			node_thread = threading.Thread(target=node.receive_data, name=f"NodeReceiveThread-{node.network_id}_{node.id}")
 			node_thread.start()
 			threads.append(node_thread)
 			# time.sleep(0.5)  # dont want all nodes to connect at the same time
@@ -120,18 +120,18 @@ def main():
 	for node in nodes:
 		print(f"{node.network_id:<15}{node.id:<10}{node.switch_port:<15}")
 
-	'''
+	# '''
 	print("Stopping Backbone Switch...")
 	backbone_switch.stop()
 	for thread in threads:
 		if thread.name == "BackboneSwitchThread":
 			thread.join()
 			print("Backbone Switch thread stopped.")
-			'''
-
+			# '''
+	time.sleep(0.4)
 	# Start transmission
 	for node in nodes:
-		send_thread = threading.Thread(target=node.read_input_and_send, name=f"NodeSendThread-{node.id}")
+		send_thread = threading.Thread(target=node.read_input_and_send, name=f"NodeSendThread-{node.network_id}_{node.id}")
 		send_thread.start()
 		threads.append(send_thread)
 		#time.sleep(1)

@@ -147,8 +147,6 @@ class ShadowSwitch(BackboneSwitch):
 			try:
 				state_data = active_socket.recv(BUFFER_SIZE)
 				state = pickle.loads(state_data)
-
-				state = pickle.loads(state_data)
 				self.switch_table = state.get("switch_table", {})
 				self.global_switch_table = state.get("global_switch_table", {})
 				self.frame_buffers = {key: value.encode('utf-8') for key, value in state.get("frame_buffers", {}).items()}
@@ -185,7 +183,7 @@ class ShadowSwitch(BackboneSwitch):
 		for node_id, (addr, sock) in self.switch_table.items():
 			try:
 				sock.sendall(b"SWITCH_TO_SHADOW")
-				print(f"ShadowSwitch: Notification sent to Node connected to Switch {switch_id}.")
+				print(f"ShadowSwitch: Notification sent to Node connected to Switch {node_id}.")
 			except Exception as e:
 				print(f"Failed to notify node {node_id}: {e}")
 
